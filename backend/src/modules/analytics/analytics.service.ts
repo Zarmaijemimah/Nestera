@@ -1,13 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Horizon } from '@stellar/stellar-sdk';
 import { StellarService } from '../blockchain/stellar.service';
-import { AssetAllocationDto, AssetAllocationItemDto } from './dto/asset-allocation.dto';
+import {
+  AssetAllocationDto,
+  AssetAllocationItemDto,
+} from './dto/asset-allocation.dto';
 
 @Injectable()
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
 
-  constructor(private readonly stellarService: StellarService) {}
+  constructor(private readonly stellarService: StellarService) { }
 
   /**
    * Aggregates all token balances for a user's Stellar account and returns
@@ -18,12 +21,14 @@ export class AnalyticsService {
   async getAssetAllocation(publicKey: string): Promise<AssetAllocationDto> {
     const horizonServer = this.stellarService.getHorizonServer();
 
-    let account: Horizon.AccountResponse;
+    let account: any;
 
     try {
       account = await horizonServer.accounts().accountId(publicKey).call();
     } catch (error) {
-      this.logger.warn(`Could not fetch account ${publicKey}: ${error.message}`);
+      this.logger.warn(
+        `Could not fetch account ${publicKey}: ${error.message}`,
+      );
       return { allocations: [], total: 0 };
     }
 

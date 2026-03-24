@@ -47,12 +47,18 @@ export class GovernanceIndexerService implements OnModuleInit {
     }
 
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
-    this.contract = new ethers.Contract(contractAddress, DAO_ABI_FRAGMENTS, this.provider);
+    this.contract = new ethers.Contract(
+      contractAddress,
+      DAO_ABI_FRAGMENTS,
+      this.provider,
+    );
 
     this.contract.on('ProposalCreated', this.handleProposalCreated.bind(this));
     this.contract.on('VoteCast', this.handleVoteCast.bind(this));
 
-    this.logger.log(`Governance indexer listening on contract ${contractAddress}`);
+    this.logger.log(
+      `Governance indexer listening on contract ${contractAddress}`,
+    );
   }
 
   /**
@@ -84,7 +90,9 @@ export class GovernanceIndexerService implements OnModuleInit {
     });
 
     await this.proposalRepo.save(proposal);
-    this.logger.log(`Indexed new proposal onChainId=${onChainId} from proposer=${proposer}`);
+    this.logger.log(
+      `Indexed new proposal onChainId=${onChainId} from proposer=${proposer}`,
+    );
   }
 
   /**
@@ -121,7 +129,9 @@ export class GovernanceIndexerService implements OnModuleInit {
       existing.direction = direction;
       existing.weight = weight.toString();
       await this.voteRepo.save(existing);
-      this.logger.debug(`Updated vote for wallet=${voter} on proposal=${onChainId}`);
+      this.logger.debug(
+        `Updated vote for wallet=${voter} on proposal=${onChainId}`,
+      );
     } else {
       const vote = this.voteRepo.create({
         walletAddress: voter,

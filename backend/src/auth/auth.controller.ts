@@ -80,10 +80,18 @@ export class AuthController {
   })
   @ApiResponse({ status: 200, description: 'Wallet linked successfully' })
   @ApiResponse({ status: 400, description: 'Invalid public key format' })
-  @ApiResponse({ status: 401, description: 'Invalid or missing JWT / bad signature' })
-  @ApiResponse({ status: 409, description: 'Wallet already linked to an account' })
-  linkWallet(@Request() req: { user: { id: string } }, @Body() dto: LinkWalletDto) {
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or missing JWT / bad signature',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Wallet already linked to an account',
+  })
+  linkWallet(
+    @Request() req: { user: { id: string } },
+    @Body() dto: LinkWalletDto,
+  ) {
     return this.authService.linkWallet(req.user.id, dto);
   }
 }
-
