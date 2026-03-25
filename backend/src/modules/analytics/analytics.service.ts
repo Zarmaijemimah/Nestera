@@ -3,13 +3,19 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { User } from '../user/entities/user.entity';
 import { ProcessedStellarEvent } from '../blockchain/entities/processed-event.entity';
+import {
+  LedgerTransaction,
+  LedgerTransactionType,
+} from '../blockchain/entities/transaction.entity';
 import { SavingsService as BlockchainSavingsService } from '../blockchain/savings.service';
 import { StellarService } from '../blockchain/stellar.service';
+import { OracleService } from '../blockchain/oracle.service';
 import { PortfolioTimeframe } from './dto/portfolio-timeline-query.dto';
 import {
   AssetAllocationDto,
   AssetAllocationItemDto,
 } from './dto/asset-allocation.dto';
+import { YieldBreakdownDto } from './dto/yield-breakdown.dto';
 
 @Injectable()
 export class AnalyticsService {
@@ -20,8 +26,11 @@ export class AnalyticsService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(ProcessedStellarEvent)
     private readonly eventRepository: Repository<ProcessedStellarEvent>,
+    @InjectRepository(LedgerTransaction)
+    private readonly transactionRepository: Repository<LedgerTransaction>,
     private readonly blockchainSavingsService: BlockchainSavingsService,
     private readonly stellarService: StellarService,
+    private readonly oracleService: OracleService,
   ) {}
 
   /**
@@ -128,7 +137,7 @@ export class AnalyticsService {
 
   /**
    * Aggregates all token balances for a user's Stellar account and returns
-   * each asset's share of the total portfolio, sorted highest-first.
+   * each asset's share of the total portfolio in USD, sorted highest-first.
    */
   async getAssetAllocation(publicKey: string): Promise<AssetAllocationDto> {
     const horizonServer = this.stellarService.getHorizonServer();
@@ -155,7 +164,26 @@ export class AnalyticsService {
       const amount = parseFloat(balance.balance);
       if (amount <= 0) continue;
 
-      holdingsMap.set(assetId, (holdingsMap.get(assetId) ?? 0) + amount);
+      // Convert to USD
+      let usdValue: number;
+      if (assetId === 'XLM') {
+        usdValue = await this.oracleService.convertXLMToUsd(amount);
+      } else if (assetId === 'USDC') {
+        // USDC is already USD-pegged, but we can still check for price
+        usdValue = await this.oracleService.convertToUsd(amount, 'usd-coin');
+      } else if (assetId === 'AQUA') {
+        usdValue = await this.oracleService.convertAQUAToUsd(amount);
+      } else {
+        // For other assets, try to get price or assume 0 if not available
+        usdValue = await this.oracleService.convertToUsd(
+          amount,
+          assetId.toLowerCase(),
+        );
+      }
+
+      if (usdValue > 0) {
+        holdingsMap.set(assetId, (holdingsMap.get(assetId) ?? 0) + usdValue);
+      }
     }
 
     if (holdingsMap.size === 0) {
@@ -165,14 +193,68 @@ export class AnalyticsService {
     const total = [...holdingsMap.values()].reduce((sum, v) => sum + v, 0);
 
     const allocations: AssetAllocationItemDto[] = [...holdingsMap.entries()]
-      .map(([assetId, amount]) => ({
+      .map(([assetId, usdValue]) => ({
         assetId,
-        amount: parseFloat(amount.toFixed(7)),
-        percentage: parseFloat(((amount / total) * 100).toFixed(2)),
+        amount: parseFloat(usdValue.toFixed(2)),
+        percentage: parseFloat(((usdValue / total) * 100).toFixed(2)),
       }))
       .sort((a, b) => b.percentage - a.percentage);
 
-    return { allocations, total: parseFloat(total.toFixed(7)) };
+    return { allocations, total: parseFloat(total.toFixed(2)) };
+  }
+
+  /**
+   * Gets yield breakdown by pool for a specific user
+   */
+  async getYieldBreakdown(userId: string): Promise<YieldBreakdownDto> {
+    // Query all YIELD transactions for the user
+    const yieldTransactions = await this.transactionRepository.find({
+      where: {
+        userId,
+        type: LedgerTransactionType.YIELD,
+      },
+    });
+
+    if (yieldTransactions.length === 0) {
+      return {
+        pools: [],
+        totalInterestEarned: 0,
+      };
+    }
+
+    // Group by poolId and sum amounts
+    const poolGroups = new Map<string, number>();
+    let totalInterestEarned = 0;
+
+    for (const transaction of yieldTransactions) {
+      const poolId = transaction.poolId || 'Unknown Pool';
+      const amount = parseFloat(transaction.amount);
+
+      poolGroups.set(poolId, (poolGroups.get(poolId) || 0) + amount);
+      totalInterestEarned += amount;
+    }
+
+    // Convert to required format
+    const pools = Array.from(poolGroups.entries()).map(([poolId, earned]) => ({
+      pool: this.getPoolName(poolId),
+      earned: parseFloat(earned.toFixed(2)),
+    }));
+
+    return {
+      pools: pools.sort((a, b) => b.earned - a.earned),
+      totalInterestEarned: parseFloat(totalInterestEarned.toFixed(2)),
+    };
+  }
+
+  private getPoolName(poolId: string): string {
+    // Map pool IDs to human-readable names
+    const poolNames: Record<string, string> = {
+      xlm_staking: 'XLM Staking',
+      aqua_farming: 'AQUA Farming',
+      usdc_liquidity: 'USDC Liquidity',
+    };
+
+    return poolNames[poolId] || poolId;
   }
 
   private extractAmount(event: ProcessedStellarEvent): number {

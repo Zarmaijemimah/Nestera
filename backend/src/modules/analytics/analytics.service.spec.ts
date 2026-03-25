@@ -3,16 +3,24 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { AnalyticsService } from './analytics.service';
 import { User } from '../user/entities/user.entity';
 import { ProcessedStellarEvent } from '../blockchain/entities/processed-event.entity';
+import { LedgerTransaction } from '../blockchain/entities/transaction.entity';
 import { SavingsService as BlockchainSavingsService } from '../blockchain/savings.service';
 import { StellarService } from '../blockchain/stellar.service';
+import { OracleService } from '../blockchain/oracle.service';
 import { PortfolioTimeframe } from './dto/portfolio-timeline-query.dto';
 
 describe('AnalyticsService', () => {
   let service: AnalyticsService;
   let userRepository: { findOne: jest.Mock };
   let eventRepository: { find: jest.Mock };
+  let transactionRepository: { find: jest.Mock };
   let blockchainSavingsService: { getUserSavingsBalance: jest.Mock };
   let stellarService: { getHorizonServer: jest.Mock };
+  let oracleService: {
+    convertXLMToUsd: jest.Mock;
+    convertToUsd: jest.Mock;
+    convertAQUAToUsd: jest.Mock;
+  };
 
   beforeEach(async () => {
     userRepository = {
@@ -23,12 +31,22 @@ describe('AnalyticsService', () => {
       find: jest.fn(),
     };
 
+    transactionRepository = {
+      find: jest.fn(),
+    };
+
     blockchainSavingsService = {
       getUserSavingsBalance: jest.fn(),
     };
 
     stellarService = {
       getHorizonServer: jest.fn(),
+    };
+
+    oracleService = {
+      convertXLMToUsd: jest.fn(),
+      convertToUsd: jest.fn(),
+      convertAQUAToUsd: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -43,12 +61,20 @@ describe('AnalyticsService', () => {
           useValue: eventRepository,
         },
         {
+          provide: getRepositoryToken(LedgerTransaction),
+          useValue: transactionRepository,
+        },
+        {
           provide: BlockchainSavingsService,
           useValue: blockchainSavingsService,
         },
         {
           provide: StellarService,
           useValue: stellarService,
+        },
+        {
+          provide: OracleService,
+          useValue: oracleService,
         },
       ],
     }).compile();
